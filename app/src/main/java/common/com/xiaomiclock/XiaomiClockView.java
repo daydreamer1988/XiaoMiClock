@@ -19,14 +19,16 @@ import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.animation.Animation;
+import android.view.animation.OvershootInterpolator;
+import android.view.animation.Transformation;
 
 import java.util.Calendar;
 
 /**
  * Created by Austin on 2017/3/23.
+ * email:358681744@qq.com
  */
-
-//Todo 通过 rect.set 方法减少 rect的初始化数量。
 
 public class XiaomiClockView extends View {
 
@@ -35,12 +37,14 @@ public class XiaomiClockView extends View {
     //the larger the longer
     private static final float MINUTE_HAND_LENGTH_RATIO = 0.4f;
 
-    private float DEFAULT_PADDING_RATIO = 0.2f;
-    private float INNER_CICLE_RATIA = 0.85f;
-    private float INNER_SCALE_LENGTH =20f;
+    private static final float DEFAULT_PADDING_RATIO = 0.25f;
+
+    private static final float INNER_CICLE_RATIA = 0.85f;
+
+    private static final float INNER_SCALE_LENGTH =20f;
 
     //the position of second hand, outer while bigger;
-    private float SECOND_HAND_RATIA = 0.55f;
+    private static final float SECOND_HAND_RATIA = 0.55f;
 
     //3d effect's max degrees
     private static final float MAX_ROTATE_DEGREE = 10;
@@ -61,6 +65,8 @@ public class XiaomiClockView extends View {
 
     private Paint mPaint;
 
+    private Paint mTransPaint;
+
     private Paint mHourHandPaint;
 
     private Paint mMinuteHandPaint;
@@ -78,8 +84,6 @@ public class XiaomiClockView extends View {
     private Rect mSingleLetterRect;
 
     private RectF mOuterRingRect;
-
-    private RectF mInnerRingRect;
 
     private PointF centerPoint;
 
@@ -106,6 +110,7 @@ public class XiaomiClockView extends View {
     private float mHourHandLength;
     private float mXdegree;
     private float mYdegree;
+    private Animation animation;
 
     //
 
@@ -116,10 +121,10 @@ public class XiaomiClockView extends View {
 
     public XiaomiClockView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        init(attrs);
+        init();
     }
 
-    private void init(AttributeSet attrs) {
+    private void init() {
         //get the background color
         Drawable background = getBackground();
         if (background instanceof ColorDrawable) {
@@ -132,7 +137,10 @@ public class XiaomiClockView extends View {
         mPaint.setColor(Color.parseColor(mColorLight));
         mPaint.setStrokeWidth(dp2px(1f));
 
-
+        //initial the transparent paint
+        mTransPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mTransPaint.setColor(mBackgroundColor);
+        mTransPaint.setStrokeWidth(dp2px(4f));
 
         //initial scale gap paint
         mScaleGapPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -156,8 +164,7 @@ public class XiaomiClockView extends View {
 
         //initial minute hand paint;
         mMinuteHandPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mMinuteHandPaint.setStyle(Paint.Style.STROKE);
-        mMinuteHandPaint.setStrokeWidth(dp2px(3.5f));
+
         mMinuteHandPaint.setStrokeCap(Paint.Cap.ROUND);
         mMinuteHandPaint.setColor(Color.parseColor(mColorHeavy));
 
@@ -198,9 +205,49 @@ public class XiaomiClockView extends View {
         getTimeDegree();
 
         //3d effect
-        m3DMatrix.reset();
+        setUpCamera(canvas);
 
+        //draw the text
+        drawTheText(canvas);
+
+        //draw the four outer ring arc
+        drawTheFourOuterRingArc(canvas);
+
+        //draw the outer scale gap
+        drawTheOuterScale(canvas);
+
+        //draw the inner scales
+        drawTheInnerScales(canvas);
+
+        //draw the second hand
+        drawTheSecondHand(canvas);
+
+        //draw the minute hand
+        drawHourHand(canvas);
+
+        //draw the hour hand
+        drawMinuteHand(canvas);
+
+        //draw the two circle in the middle
+        drawCoverCircle(canvas);
+
+        //draw again
+        invalidate();
+    }
+
+    private void setUpCamera(Canvas canvas) {
+        m3DMatrix.reset();
         mCamera.save();
+        // PlanA: 注释该行代码：圆中心固定，无法移动。
+        //        解注 该行代码可以解决中心圆固定不动的问题, 但是没有错位立体的效果
+
+        // PlanB:注释该行代码。
+        // 以下通过对两个中心圆drawCircle(x, y)时，将x ,y 值稍做调整
+        // 及时针，分针的canvas.translate(x, y)时，将x, y 值稍做调整以达到借位，立体的效果。
+        //       解注该行代码：导致时针的圆圈固定不动。因为mCamera的translate效果，与时针及时针圆圈的translate效果相抵消
+
+        // PlanC:解注该行代码。并且时针和时针圆圈采用PlanA，此效果最佳。
+
         mCamera.translate(mYdegree, mXdegree, 0);
         mCamera.rotateX(mXdegree);
         mCamera.rotateY(mYdegree);
@@ -209,88 +256,39 @@ public class XiaomiClockView extends View {
         m3DMatrix.preTranslate(-centerPoint.x, -centerPoint.y);
         m3DMatrix.postTranslate(centerPoint.x, centerPoint.y);
         canvas.concat(m3DMatrix);
+    }
 
-
-        //draw the text
+    private void drawTheText(Canvas canvas) {
         canvas.drawText("12", m12Point.x, m12Point.y, mTextPaint);
         canvas.drawText("3", m3Point.x, m3Point.y, mTextPaint);
         canvas.drawText("6", m6Point.x, m6Point.y, mTextPaint);
         canvas.drawText("9", m9Point.x, m9Point.y, mTextPaint);
+    }
 
-        //draw the fourth arc
+    private void drawTheFourOuterRingArc(Canvas canvas) {
         for (int i = 0; i < 4; i++) {
             canvas.drawArc(mOuterRingRect, 5 + i * 90, 80, false, mPaint);
         }
+    }
 
-        //draw the inner scales
+    private void drawTheOuterScale(Canvas canvas) {
+        for (int i = 0; i < 12; i++) {
+            if (i % 3 != 0) {
+                canvas.save();
+                canvas.translate(centerPoint.x, centerPoint.y);
+                canvas.rotate(30 * i);
+                canvas.drawPoint(0, mRadius, mTransPaint);
+                canvas.restore();
+            }
+        }
+    }
+
+    private void drawTheInnerScales(Canvas canvas) {
         canvas.save();
         canvas.scale(INNER_CICLE_RATIA, INNER_CICLE_RATIA, centerPoint.x, centerPoint.y);
         drawScales(canvas);
         canvas.restore();
-
-        //draw the second hand
-        canvas.save();
-        canvas.rotate(mSecondDegree, centerPoint.x, centerPoint.y);
-        canvas.translate(centerPoint.x - dp2px(mSecondHandWidth / 2), centerPoint.y - mRadius * SECOND_HAND_RATIA);
-        canvas.drawPath(mSecondHandPath, mSecondHandPaint);
-        canvas.restore();
-
-        //draw the minute hand
-        drawHourHand(canvas);
-
-        //draw the hour hand
-        drawMinuteHand(canvas);
-
-        drawCoverCircle(canvas);
-
-        invalidate();
-
     }
-
-    private void drawCoverCircle(Canvas canvas) {
-        canvas.save();
-        canvas.translate(centerPoint.x, centerPoint.y);
-        mMinuteHandPaint.setColor(Color.parseColor(mColorLight));
-        canvas.drawCircle(0, 0, dp2px(7), mMinuteHandPaint);
-        mMinuteHandPaint.setColor(Color.parseColor(mColorHeavy));
-        canvas.drawCircle(0, 0, dp2px(6), mMinuteHandPaint);
-        canvas.restore();
-    }
-
-    private void drawMinuteHand(Canvas canvas) {
-        canvas.save();
-        mMinuteHandPath.reset();
-        mMinuteHandPath.moveTo(0, -dp2px(6));
-        mMinuteHandPath.lineTo(0f, -mHourHandLength * 1.3f);
-//        mMinuteHandPath.addCircle(0, 0, dp2px(6), Path.Direction.CW);
-        canvas.translate(centerPoint.x, centerPoint.y);
-        canvas.rotate(mMinuteDegree);
-        mMinuteHandPaint.setColor(Color.parseColor(mColorHeavy));
-        canvas.drawPath(mMinuteHandPath, mMinuteHandPaint);
-        canvas.restore();
-
-    }
-
-
-    private void drawHourHand(Canvas canvas) {
-        canvas.save();
-        mHourHandPath.reset();
-        mHourHandPath.moveTo(-10, -dp2px(6));
-        mHourHandPath.lineTo(-5, -mHourHandLength);
-        mHourHandPath.quadTo(0, -mHourHandLength - 10, 5, -mHourHandLength);
-        mHourHandPath.lineTo(10, -dp2px(6));
-
-        mHourHandPath.close();
-        canvas.translate(centerPoint.x, centerPoint.y);
-        canvas.rotate(mHourDegree);
-        canvas.drawPath(mHourHandPath, mHourHandPaint);
-        mHourHandPath.reset();
-//        mMinuteHandPaint.setColor(Color.parseColor(mColorLight));
-//        canvas.drawCircle(0, 0, dp2px(6), mMinuteHandPaint);
-
-        canvas.restore();
-    }
-
 
     private void drawScales(Canvas canvas) {
         //initial the scale gredient
@@ -312,6 +310,61 @@ public class XiaomiClockView extends View {
         canvas.restore();
     }
 
+    private void drawTheSecondHand(Canvas canvas) {
+        canvas.save();
+        canvas.rotate(mSecondDegree, centerPoint.x, centerPoint.y);
+        canvas.translate(centerPoint.x - dp2px(mSecondHandWidth / 2), centerPoint.y - mRadius * SECOND_HAND_RATIA);
+        canvas.drawPath(mSecondHandPath, mSecondHandPaint);
+        canvas.restore();
+    }
+
+    private void drawHourHand(Canvas canvas) {
+        canvas.save();
+        mHourHandPath.reset();
+        mHourHandPath.moveTo(-10, -dp2px(6));
+        mHourHandPath.lineTo(-5, -mHourHandLength);
+        mHourHandPath.quadTo(0, -mHourHandLength - 10, 5, -mHourHandLength);
+        mHourHandPath.lineTo(10, -dp2px(6));
+        mHourHandPath.close();
+//        canvas.translate(centerPoint.x-mYdegree, centerPoint.y+mXdegree);// PlanB
+        canvas.translate(centerPoint.x, centerPoint.y);//PlanA
+        canvas.rotate(mHourDegree);
+        canvas.drawPath(mHourHandPath, mHourHandPaint);
+        mHourHandPath.reset();
+        canvas.restore();
+    }
+
+    private void drawMinuteHand(Canvas canvas) {
+        canvas.save();
+        mMinuteHandPath.reset();
+        mMinuteHandPath.moveTo(-8, -dp2px(6));
+        mMinuteHandPath.lineTo(-5, -mHourHandLength*1.2f);
+        mMinuteHandPath.quadTo(0, -mHourHandLength*1.2f - 10, 5, -mHourHandLength*1.2f);
+        mMinuteHandPath.lineTo(8, -dp2px(6));
+        mMinuteHandPath.close();
+        canvas.translate(centerPoint.x+mYdegree, centerPoint.y-mXdegree);// PlanB
+//        canvas.translate(centerPoint.x, centerPoint.y);//PlanA
+        canvas.rotate(mMinuteDegree);
+        mMinuteHandPaint.setColor(Color.parseColor(mColorHeavy));
+        mMinuteHandPaint.setStyle(Paint.Style.FILL);
+        canvas.drawPath(mMinuteHandPath, mMinuteHandPaint);
+        canvas.restore();
+    }
+
+    private void drawCoverCircle(Canvas canvas) {
+        canvas.save();
+        canvas.translate(centerPoint.x, centerPoint.y);
+        mMinuteHandPaint.setStyle(Paint.Style.STROKE);
+        mMinuteHandPaint.setStrokeWidth(dp2px(3.5f));
+        mMinuteHandPaint.setColor(Color.parseColor(mColorLight));
+//        canvas.drawCircle(0 - mYdegree, 0+mXdegree, dp2px(6), mMinuteHandPaint);// PlanB
+        canvas.drawCircle(0, 0, dp2px(6), mMinuteHandPaint);//PlanA
+        mMinuteHandPaint.setColor(Color.parseColor(mColorHeavy));
+        canvas.drawCircle(0 + mYdegree, 0-mXdegree, dp2px(6), mMinuteHandPaint);// PlanB
+//        canvas.drawCircle(0, 0, dp2px(6), mMinuteHandPaint);//PlanA
+        canvas.restore();
+    }
+
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
@@ -322,7 +375,6 @@ public class XiaomiClockView extends View {
         //figure out the clock radius(have considered the default padding);
         mRadius = Math.min(w / 2, h / 2);
         mRadius *= (1 - DEFAULT_PADDING_RATIO);
-
 
         //get the outer ring rect
         float paddingLeft = centerPoint.x - mRadius;
@@ -349,8 +401,6 @@ public class XiaomiClockView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-
-
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
                 get3dDegree(event);
@@ -362,45 +412,32 @@ public class XiaomiClockView extends View {
                 animateBack();
                 break;
         }
-
-
         return true;
     }
 
     private void animateBack() {
-
+        final float a = mXdegree;
+        final float b = mYdegree;
+        animation = new Animation() {
+            @Override
+            protected void applyTransformation(float interpolatedTime, Transformation t) {
+                mXdegree = a * (1 - interpolatedTime);
+                mYdegree = b * (1 - interpolatedTime);
+            }
+        };
+        animation.setDuration(600);
+        animation.setInterpolator(new OvershootInterpolator(7));
+        startAnimation(animation);
     }
 
     private void get3dDegree(MotionEvent event) {
-
-        //郭霖的代码
-       /* float rotateX = -(event.getY() - centerPoint.y);
-        float rotateY = (event.getX() - centerPoint.x);
-
-        float percentX = rotateX / mRadius;
-        float percentY = rotateY / mRadius;
-
-        if (percentX > 1) {
-            percentX = 1;
-        } else if (percentX < -1) {
-            percentX = -1;
+        if (animation != null) {
+            clearAnimation(); // dosn't work if animation.clear();
         }
-
-        if (percentY > 1) {
-
-            percentY = 1;
-
-        } else if (percentY < -1) {
-            percentY = -1;
-        }
-
-        mXdegree = percentX * MAX_ROTATE_DEGREE;
-        mYdegree = percentY * MAX_ROTATE_DEGREE;*/
-
         float x = event.getX();
         float y = event.getY();
-        float deltaX = x - centerPoint.x / 2;
-        float deltaY = y - centerPoint.y / 2;
+        float deltaX = x - centerPoint.x;
+        float deltaY = y - centerPoint.y;
 
         if(deltaX>mRadius){
             deltaX = mRadius;
@@ -415,7 +452,6 @@ public class XiaomiClockView extends View {
         }
 
         mYdegree = deltaX / mRadius * MAX_ROTATE_DEGREE;
-
         mXdegree = -(deltaY / mRadius * MAX_ROTATE_DEGREE);
     }
 
